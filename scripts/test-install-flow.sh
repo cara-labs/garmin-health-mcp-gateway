@@ -23,9 +23,18 @@ if [[ "${mode}" == "build" ]]; then
 fi
 
 cleanup() {
+  exit_status=$?
   if [[ -d "${test_dir}" ]]; then
     (
       cd "${test_dir}"
+      if [[ "${exit_status}" != "0" ]]; then
+        printf '\nInstallation smoke test failed; service status and logs follow.\n' >&2
+        docker compose --project-name "${project_name}" \
+          --env-file .env "${compose_files[@]}" ps -a >&2 || true
+        docker compose --project-name "${project_name}" \
+          --env-file .env "${compose_files[@]}" \
+          logs --no-color postgres migrate mcp volume-init >&2 || true
+      fi
       docker compose --project-name "${project_name}" \
         --env-file .env "${compose_files[@]}" \
         down --volumes --remove-orphans >/dev/null 2>&1 || true
