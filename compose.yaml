@@ -1,6 +1,7 @@
 name: garmin-health-gateway
 
 x-app-security: &app-security
+  user: "${GATEWAY_UID:-1000}:${GATEWAY_GID:-1000}"
   read_only: true
   init: true
   cap_drop:
@@ -37,7 +38,12 @@ services:
   volume-init:
     image: busybox:1.37.0
     user: "0:0"
-    command: ["sh", "-c", "mkdir -p /data/garmin/fit /auth && chown -R 10001:10001 /data/garmin /auth"]
+    command:
+      - sh
+      - -c
+      - >-
+        mkdir -p /data/garmin/fit /auth &&
+        chown -R ${GATEWAY_UID:-1000}:${GATEWAY_GID:-1000} /data/garmin /auth
     volumes:
       - fit_archive:/data/garmin
       - garmin_tokens:/auth
@@ -158,6 +164,7 @@ services:
 
   tunnel-client:
     image: ${TUNNEL_CLIENT_IMAGE:-ghcr.io/openai/tunnel-client:v0.0.13}
+    user: "${GATEWAY_UID:-1000}:${GATEWAY_GID:-1000}"
     command:
       - run
       - --control-plane.tunnel-id=${OPENAI_TUNNEL_ID:?Set OPENAI_TUNNEL_ID in .env}

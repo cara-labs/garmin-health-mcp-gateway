@@ -152,6 +152,8 @@ Treat the runtime API key like a password. Do not paste it into `.env`, commit i
 
 ```bash
 cp .env.example .env
+sed -i "s/^GATEWAY_UID=.*/GATEWAY_UID=$(id -u)/" .env
+sed -i "s/^GATEWAY_GID=.*/GATEWAY_GID=$(id -g)/" .env
 ```
 
 Open `.env` in a text editor and set:
@@ -162,10 +164,12 @@ nano .env
 
 ```dotenv
 TZ=America/Los_Angeles
+GATEWAY_UID=1000
+GATEWAY_GID=1000
 OPENAI_TUNNEL_ID=tunnel_replace_me
 ```
 
-Replace the timezone with your [IANA timezone name](https://www.iana.org/time-zones) and replace `tunnel_replace_me` with the tunnel ID from the previous step. The backfill and scheduler defaults are suitable for a first installation.
+Replace the timezone with your [IANA timezone name](https://www.iana.org/time-zones) and replace `tunnel_replace_me` with the tunnel ID from the previous step. The two `sed` commands set `GATEWAY_UID` and `GATEWAY_GID` to the account that owns the mode-`0600` secret files; do not replace them with IDs from another account. The backfill and scheduler defaults are suitable for a first installation.
 
 Leave `TUNNEL_CLIENT_IMAGE` pinned to the tested version unless you are intentionally performing an upgrade.
 
@@ -358,6 +362,22 @@ Rerun `./scripts/setup-secrets.sh`, then confirm the filenames exist without pri
 
 ```bash
 find secrets -maxdepth 1 -type f -print
+```
+
+### Permission denied while reading `/run/secrets/...`
+
+Make sure the numeric IDs in `.env` match the account that ran `setup-secrets.sh`:
+
+```bash
+id -u
+id -g
+grep -E '^GATEWAY_(UID|GID)=' .env
+```
+
+Correct `GATEWAY_UID` and `GATEWAY_GID` if necessary, then recreate the application containers:
+
+```bash
+docker compose up -d --force-recreate
 ```
 
 ### Garmin authentication or MFA fails

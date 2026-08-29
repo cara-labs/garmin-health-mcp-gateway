@@ -54,6 +54,8 @@ fi
 
 cd "${test_dir}"
 cp .env.example .env
+sed -i "s/^GATEWAY_UID=.*/GATEWAY_UID=$(id -u)/" .env
+sed -i "s/^GATEWAY_GID=.*/GATEWAY_GID=$(id -g)/" .env
 mkdir -m 700 secrets
 printf '%s' 'install-test@example.invalid' > secrets/garmin_email.txt
 printf '%s' 'not-a-real-garmin-password' > secrets/garmin_password.txt
