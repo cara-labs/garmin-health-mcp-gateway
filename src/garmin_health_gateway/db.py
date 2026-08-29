@@ -76,6 +76,12 @@ ACTIVITY_COLUMNS = (
 )
 
 
+def _alter_role_password_statement(role_name: str, password: str) -> sql.Composed:
+    return sql.SQL("ALTER ROLE {} PASSWORD {}").format(
+        sql.Identifier(role_name), sql.Literal(password)
+    )
+
+
 def _json_safe(value: Any) -> Any:
     if isinstance(value, (datetime, date)):
         return value.isoformat()
@@ -143,7 +149,7 @@ class Database:
             cursor.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (role_name,))
             if cursor.fetchone() is None:
                 cursor.execute(sql.SQL("CREATE ROLE {} LOGIN").format(role))
-            cursor.execute(sql.SQL("ALTER ROLE {} PASSWORD %s").format(role), (password,))
+            cursor.execute(_alter_role_password_statement(role_name, password))
             cursor.execute(
                 sql.SQL("ALTER ROLE {} SET default_transaction_read_only = on").format(role)
             )

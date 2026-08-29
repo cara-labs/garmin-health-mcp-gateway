@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "garmin-health-gateway"
-version = "1.0.1"
+version = "1.0.2"
 description = "Self-hosted, read-only Garmin health-data MCP gateway for 64-bit Docker hosts"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
