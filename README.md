@@ -4,7 +4,7 @@ A production-oriented, read-only Garmin health gateway for 64-bit Docker hosts. 
 
 Versioned application images are published to `ghcr.io/cara-labs/garmin-health-mcp-gateway` for `linux/amd64` and `linux/arm64`. Releases include build provenance and an SBOM. Contributors can still build the image locally with `compose.build.yaml`.
 
-Garmin Connect is not a stable official personal-data API. This project isolates the current `garminconnect` client behind `GarminProvider`, pins the tested client release, retains understandable sync errors, and keeps database/MCP code independent of that library.
+The gateway code in this repository was written independently. It uses the third-party, MIT-licensed `garminconnect` Python package as a runtime dependency; that package is installed from PyPI and its source is not copied into this repository. Our `GarminProvider` adapter is the only layer that calls it. Pinning version `0.3.11` prevents an untested update from being installed automatically, and the adapter converts failures into understandable sync errors while keeping the database and MCP layers independent of that dependency. Garmin Connect remains an unofficial and potentially changing personal-data interface.
 
 ## Architecture
 
@@ -93,3 +93,7 @@ Do not restore PostgreSQL by copying a live data directory. Stop writes and use 
 Review Garmin client release notes before changing the `garminconnect` pin. Run tests and a manual sync after an upgrade because Garmin endpoints are unofficial. Pin the exact `TUNNEL_CLIENT_IMAGE` tag in `.env`; review official tunnel-client releases before changing it.
 
 Health and training interpretations are informational, not medical advice. Seek professional care for symptoms or health concerns.
+
+## Licensing
+
+The original gateway code and documentation are licensed under Apache License 2.0. Third-party dependencies retain their own licenses and are not relicensed as Apache 2.0. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and the release SBOM for the dependency inventory.

@@ -91,7 +91,11 @@ Validate the Compose configuration:
 docker compose config --quiet
 ```
 
-## 6. Pull the application containers
+## 6. Choose an image installation method
+
+### Recommended: pull the published image
+
+This downloads the tested, versioned image built by GitHub Actions. It is the fastest and simplest option, especially on a Raspberry Pi.
 
 ```bash
 docker compose pull
@@ -99,7 +103,11 @@ docker compose pull
 
 The gateway image is published for `linux/arm64` and `linux/amd64`. Docker automatically pulls the correct platform. The image is version-pinned through `GARMIN_GATEWAY_IMAGE` in `.env`; do not use an unpinned development image for production.
 
-To audit or develop the source by building locally instead, use the opt-in override:
+### Fallback: build the image locally
+
+Use this option when the published image is unavailable, when you changed the source, or when you want to audit the complete build. “Build locally” means Docker executes this repository's `Dockerfile` on your host. It still downloads the pinned Python base image and installs declared third-party packages such as `garminconnect`, MCP, and Psycopg; it does not mean offline or dependency-free operation.
+
+Build with the opt-in override:
 
 ```bash
 docker compose -f compose.yaml -f compose.build.yaml build --pull
@@ -111,6 +119,8 @@ When using the local build, include both `-f` arguments in subsequent `docker co
 docker compose -f compose.yaml -f compose.build.yaml run --rm collector auth
 docker compose -f compose.yaml -f compose.build.yaml up -d
 ```
+
+Both methods run the same gateway code. The published release also includes an SBOM and build provenance. The repository's Apache 2.0 license covers its original code; dependencies keep the licenses listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## 7. Authenticate with Garmin
 

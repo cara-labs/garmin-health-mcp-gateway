@@ -75,7 +75,7 @@ services:
         max-file: "5"
 
   migrate:
-    image: ${GARMIN_GATEWAY_IMAGE:-ghcr.io/cara-labs/garmin-health-mcp-gateway:1.0.0}
+    image: ${GARMIN_GATEWAY_IMAGE:-ghcr.io/cara-labs/garmin-health-mcp-gateway:1.0.1}
     <<: *app-security
     restart: "no"
     command: ["provision-reader"]
@@ -94,7 +94,7 @@ services:
     cpus: 0.5
 
   collector:
-    image: ${GARMIN_GATEWAY_IMAGE:-ghcr.io/cara-labs/garmin-health-mcp-gateway:1.0.0}
+    image: ${GARMIN_GATEWAY_IMAGE:-ghcr.io/cara-labs/garmin-health-mcp-gateway:1.0.1}
     <<: *app-security
     command: ["scheduler"]
     environment:
@@ -128,7 +128,7 @@ services:
     cpus: 1.5
 
   mcp:
-    image: ${GARMIN_GATEWAY_IMAGE:-ghcr.io/cara-labs/garmin-health-mcp-gateway:1.0.0}
+    image: ${GARMIN_GATEWAY_IMAGE:-ghcr.io/cara-labs/garmin-health-mcp-gateway:1.0.1}
     <<: *app-security
     command: ["mcp"]
     environment:

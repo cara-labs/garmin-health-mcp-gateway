@@ -14,7 +14,7 @@ RUN groupadd --gid 10001 gateway \
     && useradd --uid 10001 --gid gateway --create-home --shell /usr/sbin/nologin gateway
 
 WORKDIR /app
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md LICENSE THIRD_PARTY_NOTICES.md ./
 COPY src ./src
 COPY migrations ./migrations
 RUN python -m pip install --upgrade pip \
