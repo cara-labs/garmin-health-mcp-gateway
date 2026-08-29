@@ -1,5 +1,10 @@
 FROM python:3.12.13-slim-bookworm
 
+LABEL org.opencontainers.image.title="Garmin Health MCP Gateway" \
+    org.opencontainers.image.description="Self-hosted, read-only Garmin health-data MCP gateway" \
+    org.opencontainers.image.source="https://github.com/cara-labs/garmin-health-mcp-gateway" \
+    org.opencontainers.image.licenses="Apache-2.0"
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \

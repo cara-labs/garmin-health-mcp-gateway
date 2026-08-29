@@ -1,0 +1,13 @@
+# Opt-in override for contributors who want to build the gateway image locally.
+x-local-gateway: &local-gateway
+  image: garmin-health-mcp-gateway:local
+  build:
+    context: .
+
+services:
+  migrate:
+    <<: *local-gateway
+  collector:
+    <<: *local-gateway
+  mcp:
+    <<: *local-gateway

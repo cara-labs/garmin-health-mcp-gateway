@@ -2,6 +2,8 @@
 
 A production-oriented, read-only Garmin health gateway for 64-bit Docker hosts. It is optimized for Raspberry Pi but also runs on Linux servers, NAS devices, mini PCs, cloud hosts, and Docker Desktop. It incrementally collects normalized health and activity data into PostgreSQL, preserves each original FIT activity file, and exposes semantic MCP tools to ChatGPT and Codex through an outbound-only OpenAI Secure MCP Tunnel.
 
+Versioned application images are published to `ghcr.io/cara-labs/garmin-health-mcp-gateway` for `linux/amd64` and `linux/arm64`. Releases include build provenance and an SBOM. Contributors can still build the image locally with `compose.build.yaml`.
+
 Garmin Connect is not a stable official personal-data API. This project isolates the current `garminconnect` client behind `GarminProvider`, pins the tested client release, retains understandable sync errors, and keeps database/MCP code independent of that library.
 
 ## Architecture

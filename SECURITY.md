@@ -15,3 +15,7 @@ The tunnel and ChatGPT workspace association are the remote authorization bounda
 If a Garmin credential or token may have leaked, change the Garmin password, revoke sessions in Garmin, stop the collector, and recreate the `garmin_tokens` volume. If a tunnel runtime key leaks, revoke it in OpenAI Platform and replace `secrets/openai_tunnel_api_key.txt`.
 
 The optional `compose.local.yaml` binds MCP only to host loopback for MCP Inspector testing. Never change that mapping to `0.0.0.0` on an untrusted network.
+
+## Container provenance
+
+Release images are built from version tags by GitHub Actions for `linux/amd64` and `linux/arm64`. The workflow publishes an SBOM and GitHub artifact attestation. Production deployments should use a versioned image tag or immutable digest rather than a branch tag.

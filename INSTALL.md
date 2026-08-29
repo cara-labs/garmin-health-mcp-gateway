@@ -91,13 +91,26 @@ Validate the Compose configuration:
 docker compose config --quiet
 ```
 
-## 6. Build the application containers
+## 6. Pull the application containers
 
 ```bash
-docker compose build --pull collector mcp migrate
+docker compose pull
 ```
 
-The first build downloads the pinned Python base image and dependencies and can take several minutes on a Raspberry Pi.
+The gateway image is published for `linux/arm64` and `linux/amd64`. Docker automatically pulls the correct platform. The image is version-pinned through `GARMIN_GATEWAY_IMAGE` in `.env`; do not use an unpinned development image for production.
+
+To audit or develop the source by building locally instead, use the opt-in override:
+
+```bash
+docker compose -f compose.yaml -f compose.build.yaml build --pull
+```
+
+When using the local build, include both `-f` arguments in subsequent `docker compose` commands. For example:
+
+```bash
+docker compose -f compose.yaml -f compose.build.yaml run --rm collector auth
+docker compose -f compose.yaml -f compose.build.yaml up -d
+```
 
 ## 7. Authenticate with Garmin
 
@@ -199,8 +212,8 @@ Back up the PostgreSQL, FIT archive, and Garmin token volumes before upgrading. 
 
 ```bash
 git pull --ff-only
-docker compose pull postgres volume-init tunnel-client
-docker compose up -d --build --remove-orphans
+docker compose pull
+docker compose up -d --remove-orphans
 docker compose ps -a
 ```
 
