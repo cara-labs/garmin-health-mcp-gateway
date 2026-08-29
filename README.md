@@ -1,6 +1,6 @@
 # Garmin Health Gateway
 
-A production-oriented, read-only Garmin health gateway for a Raspberry Pi. It incrementally collects normalized health and activity data into PostgreSQL, preserves each original FIT activity file, and exposes semantic MCP tools to ChatGPT and Codex through an outbound-only OpenAI Secure MCP Tunnel.
+A production-oriented, read-only Garmin health gateway for 64-bit Docker hosts. It is optimized for Raspberry Pi but also runs on Linux servers, NAS devices, mini PCs, cloud hosts, and Docker Desktop. It incrementally collects normalized health and activity data into PostgreSQL, preserves each original FIT activity file, and exposes semantic MCP tools to ChatGPT and Codex through an outbound-only OpenAI Secure MCP Tunnel.
 
 Garmin Connect is not a stable official personal-data API. This project isolates the current `garminconnect` client behind `GarminProvider`, pins the tested client release, retains understandable sync errors, and keeps database/MCP code independent of that library.
 
@@ -14,14 +14,16 @@ Garmin Connect ──HTTPS──> collector ──> PostgreSQL (internal network
 ChatGPT phone <── OpenAI ── outbound Secure MCP Tunnel <── read-only MCP <── PostgreSQL
 ```
 
-The MCP server never receives Garmin credentials, Garmin tokens, or FIT-file access. Its separate PostgreSQL role has only `SELECT` privileges and database-enforced read-only transactions. PostgreSQL has no published port. The Pi needs outbound HTTPS but no inbound firewall or router port.
+The MCP server never receives Garmin credentials, Garmin tokens, or FIT-file access. Its separate PostgreSQL role has only `SELECT` privileges and database-enforced read-only transactions. PostgreSQL has no published port. The Docker host needs outbound HTTPS but no inbound firewall or router port.
 
-## Raspberry Pi requirements
+## Docker host requirements
 
-- 64-bit Raspberry Pi OS on `arm64`
+- A 64-bit `arm64` or `amd64` host. Raspberry Pi deployments should use a 64-bit OS.
 - Docker Engine with Compose v2
 - At least 2 GB RAM and sufficient durable storage for PostgreSQL plus FIT files
 - A ChatGPT account/workspace with developer-mode app access and OpenAI Platform Secure MCP Tunnel permissions
+
+Docker Desktop on macOS or Windows is suitable for development. On Windows, run the POSIX setup script through WSL or Git Bash. A native Linux Docker host is recommended for continuous production operation.
 
 ## First-time setup
 
