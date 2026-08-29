@@ -1,6 +1,6 @@
-# Installation
+# Raspberry Pi installation
 
-This guide installs Garmin Health Gateway on a 64-bit Docker host and connects it to ChatGPT through an outbound-only OpenAI Secure MCP Tunnel. No inbound firewall rule, router port forwarding, public hostname, or TLS certificate is required.
+This guide starts with a new Raspberry Pi, installs Docker, deploys Garmin Health Gateway, and connects it to ChatGPT through an outbound-only OpenAI Secure MCP Tunnel. No inbound firewall rule, router port forwarding, public hostname, or TLS certificate is required.
 
 The installation starts six Compose services:
 
@@ -10,26 +10,115 @@ The installation starts six Compose services:
 - `tunnel-client`: outbound connection to OpenAI
 - `volume-init` and `migrate`: one-shot initialization jobs
 
-## 1. Check the host
+## Before you begin
 
-Use a 64-bit `arm64` or `amd64` machine with at least 2 GB RAM and durable storage. A native Linux host is recommended for continuous operation. Raspberry Pi users should install a 64-bit operating system.
+You need:
 
-Install [Docker Engine](https://docs.docker.com/engine/install/) and the [Docker Compose plugin](https://docs.docker.com/compose/install/) on Linux. On macOS or Windows, install [Docker Desktop](https://docs.docker.com/desktop/); Windows users should run the project commands in WSL or Git Bash with Linux containers enabled.
+- A 64-bit Raspberry Pi with at least 2 GB RAM. A Pi 4 or Pi 5 with 4 GB or more is recommended.
+- Raspberry Pi OS Lite (64-bit) or Raspberry Pi OS Desktop (64-bit).
+- A microSD card or SSD with enough durable storage for PostgreSQL and downloaded FIT files. An SSD is preferable for continuous operation.
+- Your Garmin Connect email and password, plus access to any MFA method enabled on the account.
+- A ChatGPT account or workspace that can create developer-mode apps and use an OpenAI Secure MCP Tunnel.
+- Outbound HTTPS access to Garmin Connect, GitHub Container Registry, and `api.openai.com:443`.
 
-Confirm the prerequisites:
+The gateway also works on other 64-bit ARM64 or AMD64 Docker machines. For those hosts, install Docker Engine and Compose v2 using the operating system's official instructions, then continue at [Step 4](#4-download-the-project).
+
+## 1. Install the 64-bit Raspberry Pi operating system
+
+On another computer, use [Raspberry Pi Imager](https://www.raspberrypi.com/software/) to write **Raspberry Pi OS Lite (64-bit)** to the Pi's storage.
+
+In the Imager customization screen:
+
+1. Set a hostname, for example `garmin-pi`.
+2. Create a non-default username and a strong password.
+3. Configure Wi-Fi if the Pi will not use Ethernet.
+4. Enable SSH with password or public-key authentication.
+5. Set the correct timezone and keyboard layout.
+
+Boot the Pi and connect from another computer:
+
+```bash
+ssh your-user@garmin-pi.local
+```
+
+Use the Pi's IP address instead of `garmin-pi.local` if local hostname discovery is unavailable.
+
+## 2. Verify and update the Pi
+
+Confirm that the installed operating system is 64-bit:
 
 ```bash
 uname -m
-git --version
-docker --version
+getconf LONG_BIT
+```
+
+The expected results are `aarch64` and `64`. Stop here and reinstall a 64-bit OS if `uname -m` reports `armv7l` or `getconf LONG_BIT` reports `32`; the gateway image does not support 32-bit ARM.
+
+Update the Pi and install the command-line prerequisites:
+
+```bash
+sudo apt update
+sudo apt full-upgrade -y
+sudo apt install -y ca-certificates curl git openssl
+sudo timedatectl set-ntp true
+sudo reboot
+```
+
+Reconnect over SSH after the reboot. Check available resources:
+
+```bash
+free -h
+df -h /
+timedatectl status
+```
+
+Correct time is important for Garmin authentication and TLS connections.
+
+## 3. Install Docker Engine and Compose
+
+Raspberry Pi OS 64-bit uses Docker's Debian ARM64 packages. Add Docker's signed APT repository:
+
+```bash
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/debian/gpg \
+  -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+
+sudo tee /etc/apt/sources.list.d/docker.sources >/dev/null <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/debian
+Suites: $(. /etc/os-release && echo "$VERSION_CODENAME")
+Components: stable
+Architectures: $(dpkg --print-architecture)
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
+
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io \
+  docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
+```
+
+Allow your current account to run Docker. Membership in the `docker` group grants root-equivalent control of the host, so add only trusted administrators:
+
+```bash
+sudo usermod -aG docker "$USER"
+exit
+```
+
+Reconnect over SSH so the new group membership takes effect, then test Docker:
+
+```bash
+docker run --rm hello-world
+docker version
 docker compose version
 ```
 
-`uname -m` should normally report `aarch64`, `arm64`, or `x86_64`. This project does not support 32-bit ARM hosts.
+Use `docker compose`, with a space. The older standalone `docker-compose` command is not used by this project.
 
 The host must be able to reach Garmin Connect and `api.openai.com:443` over outbound HTTPS. Do not open port 8000 or any PostgreSQL port on the router or firewall.
 
-## 2. Download the project
+## 4. Download the project
 
 ```bash
 git clone https://github.com/cara-labs/garmin-health-mcp-gateway.git
@@ -38,7 +127,15 @@ cd garmin-health-mcp-gateway
 
 Run all remaining commands from this directory.
 
-## 3. Create the OpenAI tunnel
+Optionally run the isolated installation smoke test before entering any real credentials:
+
+```bash
+./scripts/test-install-flow.sh published
+```
+
+The test creates temporary dummy secrets and volumes, starts PostgreSQL, applies the migration, checks the MCP service, verifies that Docker selected an ARM64 image, and removes the temporary containers and volumes. It does not contact Garmin or OpenAI and does not touch a configured production stack.
+
+## 5. Create the OpenAI tunnel
 
 Open [OpenAI Platform tunnel settings](https://platform.openai.com/settings/organization/tunnels) in a browser.
 
@@ -51,13 +148,17 @@ Creating or editing a tunnel requires **Tunnels Read + Manage**. Running the cli
 
 Treat the runtime API key like a password. Do not paste it into `.env`, commit it, or share it in an issue or chat.
 
-## 4. Configure non-secret settings
+## 6. Configure non-secret settings
 
 ```bash
 cp .env.example .env
 ```
 
 Open `.env` in a text editor and set:
+
+```bash
+nano .env
+```
 
 ```dotenv
 TZ=America/Los_Angeles
@@ -68,7 +169,7 @@ Replace the timezone with your [IANA timezone name](https://www.iana.org/time-zo
 
 Leave `TUNNEL_CLIENT_IMAGE` pinned to the tested version unless you are intentionally performing an upgrade.
 
-## 5. Create secret files
+## 7. Create secret files
 
 Run the included setup script:
 
@@ -91,7 +192,7 @@ Validate the Compose configuration:
 docker compose config --quiet
 ```
 
-## 6. Choose an image installation method
+## 8. Choose an image installation method
 
 ### Recommended: pull the published image
 
@@ -113,6 +214,12 @@ Build with the opt-in override:
 docker compose -f compose.yaml -f compose.build.yaml build --pull
 ```
 
+On a Raspberry Pi this takes longer than pulling the published image. To test the complete fallback installation in an isolated temporary stack first, run:
+
+```bash
+./scripts/test-install-flow.sh build
+```
+
 When using the local build, include both `-f` arguments in subsequent `docker compose` commands. For example:
 
 ```bash
@@ -122,7 +229,7 @@ docker compose -f compose.yaml -f compose.build.yaml up -d
 
 Both methods run the same gateway code. The published release also includes an SBOM and build provenance. The repository's Apache 2.0 license covers its original code; dependencies keep the licenses listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-## 7. Authenticate with Garmin
+## 9. Authenticate with Garmin
 
 Create the renewable Garmin session before starting the scheduler:
 
@@ -132,7 +239,7 @@ docker compose run --rm collector auth
 
 If Garmin requests multi-factor authentication, enter the code at the prompt. The resulting Garmin tokens are stored in a private Docker volume, not in the repository. Rerun this command if Garmin later invalidates the session.
 
-## 8. Start the gateway
+## 10. Start the gateway
 
 ```bash
 docker compose up -d
@@ -159,7 +266,7 @@ After the initial sync finishes, verify collector freshness:
 docker compose exec collector garmin-health check --max-age-hours 3
 ```
 
-## 9. Connect the tunnel in ChatGPT
+## 11. Connect the tunnel in ChatGPT
 
 Use ChatGPT on the web for the one-time connection setup:
 
@@ -175,7 +282,7 @@ The connection should discover 12 tools. Every tool should be marked read-only; 
 
 If the tunnel is missing from the list, verify that it is associated with the correct ChatGPT workspace, the current user has **Tunnels Read + Use**, developer mode is enabled, and `docker compose ps` shows `tunnel-client` running.
 
-## 10. Use it from the ChatGPT phone app
+## 12. Use it from the ChatGPT phone app
 
 Sign in to the phone app with the same ChatGPT account and workspace used during setup. Start a new conversation, open the tools/apps menu, and select **Garmin Health Gateway**.
 

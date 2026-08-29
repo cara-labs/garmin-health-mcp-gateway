@@ -42,9 +42,31 @@ jobs:
       - name: Test
         run: pytest
 
+  install-smoke-test:
+    name: Test Raspberry Pi installation (${{ matrix.mode }})
+    needs: test
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        mode:
+          - published
+          - build
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Test installation flow
+        run: ./scripts/test-install-flow.sh "${{ matrix.mode }}"
+
   container:
     name: Build container
-    needs: test
+    needs:
+      - test
+      - install-smoke-test
     runs-on: ubuntu-latest
     permissions:
       contents: read
