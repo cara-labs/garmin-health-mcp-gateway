@@ -1,0 +1,222 @@
+name: garmin-health-gateway
+
+x-app-security: &app-security
+  read_only: true
+  init: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  tmpfs:
+    - /tmp:size=32m,noexec,nosuid,nodev,mode=1777
+  pids_limit: 128
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "5"
+
+x-app-env: &app-env
+  TZ: ${TZ:-UTC}
+  POSTGRES_HOST: postgres
+  POSTGRES_DB: garmin_health
+  POSTGRES_USER: garmin
+  POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+  GARMIN_FIT_ARCHIVE: /data/garmin/fit
+  GARMIN_TOKEN_STORE: /var/lib/garmin-auth
+  GARMIN_DAILY_BACKFILL_DAYS: ${GARMIN_DAILY_BACKFILL_DAYS:-90}
+  GARMIN_ACTIVITY_BACKFILL_DAYS: ${GARMIN_ACTIVITY_BACKFILL_DAYS:-365}
+  GARMIN_RECENT_DAYS: ${GARMIN_RECENT_DAYS:-3}
+  GARMIN_SYNC_INTERVAL_SECONDS: ${GARMIN_SYNC_INTERVAL_SECONDS:-3600}
+  GARMIN_REQUEST_DELAY_SECONDS: ${GARMIN_REQUEST_DELAY_SECONDS:-1.25}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  LOG_FORMAT: json
+
+services:
+  volume-init:
+    image: busybox:1.37.0
+    user: "0:0"
+    command: ["sh", "-c", "mkdir -p /data/garmin/fit /auth && chown -R 10001:10001 /data/garmin /auth"]
+    volumes:
+      - fit_archive:/data/garmin
+      - garmin_tokens:/auth
+    networks:
+      - data
+    restart: "no"
+
+  postgres:
+    image: postgres:17.6-bookworm
+    environment:
+      POSTGRES_DB: garmin_health
+      POSTGRES_USER: garmin
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      PGDATA: /var/lib/postgresql/data/pgdata
+    secrets:
+      - postgres_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - data
+    restart: unless-stopped
+    shm_size: 128mb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U garmin -d garmin_health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+
+  migrate:
+    build:
+      context: .
+    <<: *app-security
+    restart: "no"
+    command: ["provision-reader"]
+    environment:
+      <<: *app-env
+      MCP_READER_PASSWORD_FILE: /run/secrets/mcp_reader_password
+    secrets:
+      - postgres_password
+      - mcp_reader_password
+    networks:
+      - data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    mem_limit: 256m
+    cpus: 0.5
+
+  collector:
+    build:
+      context: .
+    <<: *app-security
+    command: ["scheduler"]
+    environment:
+      <<: *app-env
+      GARMIN_EMAIL_FILE: /run/secrets/garmin_email
+      GARMIN_PASSWORD_FILE: /run/secrets/garmin_password
+    secrets:
+      - postgres_password
+      - garmin_email
+      - garmin_password
+    volumes:
+      - fit_archive:/data/garmin
+      - garmin_tokens:/var/lib/garmin-auth
+    networks:
+      - data
+      - collector_egress
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "garmin-health", "check", "--max-age-hours", "3"]
+      interval: 5m
+      timeout: 15s
+      retries: 3
+      start_period: 1h
+    mem_limit: 512m
+    cpus: 1.5
+
+  mcp:
+    build:
+      context: .
+    <<: *app-security
+    command: ["mcp"]
+    environment:
+      <<: *app-env
+      POSTGRES_USER: garmin_mcp_reader
+      POSTGRES_PASSWORD_FILE: /run/secrets/mcp_reader_password
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: 8000
+    secrets:
+      - mcp_reader_password
+    networks:
+      - data
+      - tunnel_link
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1',8000),5); s.close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    mem_limit: 384m
+    cpus: 1.0
+
+  tunnel-client:
+    image: ${TUNNEL_CLIENT_IMAGE:-ghcr.io/openai/tunnel-client:v0.0.13}
+    command:
+      - run
+      - --control-plane.tunnel-id=${OPENAI_TUNNEL_ID:?Set OPENAI_TUNNEL_ID in .env}
+      - --control-plane.api-key=file:/run/secrets/openai_tunnel_api_key
+      - --mcp.server-url=http://mcp:8000/mcp
+      - --log.level=info
+      - --log.format=json
+      - --health.listen-addr=127.0.0.1:8080
+    secrets:
+      - openai_tunnel_api_key
+    networks:
+      - tunnel_link
+      - tunnel_egress
+    depends_on:
+      mcp:
+        condition: service_healthy
+    read_only: true
+    init: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev,mode=1777
+      - /run:size=8m,nosuid,nodev,mode=755
+    pids_limit: 128
+    mem_limit: 256m
+    cpus: 0.5
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password.txt
+  garmin_email:
+    file: ./secrets/garmin_email.txt
+  garmin_password:
+    file: ./secrets/garmin_password.txt
+  openai_tunnel_api_key:
+    file: ./secrets/openai_tunnel_api_key.txt
+  mcp_reader_password:
+    file: ./secrets/mcp_reader_password.txt
+
+volumes:
+  postgres_data:
+  fit_archive:
+  garmin_tokens:
+
+networks:
+  data:
+    internal: true
+  collector_egress:
+  tunnel_link:
+    internal: true
+  tunnel_egress:

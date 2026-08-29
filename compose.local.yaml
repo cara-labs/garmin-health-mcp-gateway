@@ -1,0 +1,5 @@
+# Optional operator-only local access. Do not use this file for normal operation.
+services:
+  mcp:
+    ports:
+      - "127.0.0.1:8000:8000"
