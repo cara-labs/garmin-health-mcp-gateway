@@ -25,40 +25,13 @@ The MCP server never receives Garmin credentials, Garmin tokens, or FIT-file acc
 
 Docker Desktop on macOS or Windows is suitable for development. On Windows, run the POSIX setup script through WSL or Git Bash. A native Linux Docker host is recommended for continuous production operation.
 
-## First-time setup
+## Installation
 
-1. Copy `.env.example` to `.env`, set `TZ`, and leave the backfill defaults unless you want a different window.
-2. In [OpenAI Platform tunnel settings](https://platform.openai.com/settings/organization/tunnels), create a tunnel associated with the ChatGPT workspace/account that will use it. Put its `tunnel_...` ID in `.env` as `OPENAI_TUNNEL_ID`.
-3. Create a restricted runtime API key with only **Tunnels Read + Use**.
-4. Create local secret files:
-
-   ```bash
-   chmod +x scripts/setup-secrets.sh
-   ./scripts/setup-secrets.sh
-   ```
-
-5. Build the containers and create the Garmin session. The one-off auth command supports Garmin's interactive MFA prompt and saves renewable tokens in a private Docker volume:
-
-   ```bash
-   docker compose build collector mcp
-   docker compose run --rm collector auth
-   ```
-
-6. Start the complete stack:
-
-   ```bash
-   docker compose up -d
-   docker compose ps
-   docker compose logs -f collector tunnel-client
-   ```
+Follow the complete [installation guide](INSTALL.md). It covers Docker prerequisites, OpenAI tunnel permissions, local secret creation, Garmin MFA, service verification, ChatGPT web setup, phone access, upgrades, and troubleshooting.
 
 The first run backfills 90 days of daily health and 365 days of activities. With the default request delay this can take a while by design. Later cycles re-fetch the latest three days every hour to pick up overnight and post-activity Garmin corrections.
 
 If Garmin has no original FIT file for a manual/imported activity, the activity is still stored with `fit_download_status=error` and an understandable error instead of blocking the entire collector. A manual backfill retries it.
-
-7. On ChatGPT web, enable Developer mode, create a custom app/plugin, choose **Tunnel**, and select or paste this tunnel ID. Confirm that all discovered tools are read-only. After the app is attached to your account, select it from the tools/apps menu in a conversation on your phone.
-
-Official setup references: [Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels) and [connect and test a plugin](https://developers.openai.com/plugins/deploy/connect-chatgpt).
 
 ## MCP tools
 
