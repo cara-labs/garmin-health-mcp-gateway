@@ -6,7 +6,7 @@ The installation starts six Compose services:
 
 - `postgres`: private PostgreSQL database
 - `collector`: scheduled Garmin synchronization and FIT-file archiving
-- `mcp`: read-only MCP server
+- `mcp`: data-query MCP server with a bounded on-demand sync request tool
 - `tunnel-client`: outbound connection to OpenAI
 - `volume-init` and `migrate`: one-shot initialization jobs
 
@@ -282,7 +282,11 @@ Use ChatGPT on the web for the one-time connection setup:
 6. Select the tunnel created earlier, or paste its `tunnel_...` ID.
 7. Create the connection and review the discovered tools.
 
-The connection should discover 12 tools. Every tool should be marked read-only; there is no raw SQL or mutation tool. OpenAI's current workflow is documented in [Connect and test your plugin](https://developers.openai.com/plugins/deploy/connect-chatgpt).
+The connection should discover 13 tools: 12 read-only queries and `request_sync`, which requests local data updates from Garmin. There is no raw SQL tool. OpenAI's current workflow is documented in [Connect and test your plugin](https://developers.openai.com/plugins/deploy/connect-chatgpt).
+
+To refresh from chat, ask “Sync my latest Garmin health and activities.” The new tool queues the last three calendar days; use `get_sync_status` to check `ad_hoc.status` and only treat `success` as completion. Queued jobs wait for any active sync and initial backfill. A five-minute cooldown limits repeat requests. See [README](README.md#mcp-tools) for error and restart behavior.
+
+When upgrading from 1.0.x, pull the updated repository/Compose file and set `GARMIN_GATEWAY_IMAGE=ghcr.io/cara-labs/garmin-health-mcp-gateway:1.1.0` in your existing `.env`. Run `docker compose pull` then `docker compose up -d`; this creates the shared `sync_requests` volume. Refresh the connection's tool list in ChatGPT to discover `request_sync`. Changing only the image without updating Compose is insufficient. Existing credentials, database, and Garmin tokens are retained.
 
 If the tunnel is missing from the list, verify that it is associated with the correct ChatGPT workspace, the current user has **Tunnels Read + Use**, developer mode is enabled, and `docker compose ps` shows `tunnel-client` running.
 

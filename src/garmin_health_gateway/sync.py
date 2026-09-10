@@ -3,14 +3,16 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable, Iterator
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from .config import Settings
 from .db import Database
 from .normalize import normalize_activity, normalize_daily
 from .provider import GarminProvider, archive_fit
+from .sync_requests import SyncRequests
 
 logger = logging.getLogger(__name__)
 
@@ -171,7 +173,11 @@ class SyncEngine:
             raise
 
     def run_once(self, *, force_backfill: bool = False) -> dict[str, int]:
-        today = date.today()
+        with SyncRequests(self.settings.sync_request_dir).lock("worker", blocking=False):
+            return self._run_once(force_backfill=force_backfill)
+
+    def _run_once(self, *, force_backfill: bool = False) -> dict[str, int]:
+        today = datetime.now(ZoneInfo(self.settings.timezone)).date()
         daily_initial = force_backfill or not self.database.has_successful_sync("daily_health")
         activity_initial = force_backfill or not self.database.has_successful_sync("activities")
         daily_days = (
@@ -187,15 +193,68 @@ class SyncEngine:
             "activities": self.sync_activities(activity_start, today),
         }
 
+    def process_request(self, requests: SyncRequests) -> bool:
+        with requests.lock("worker", blocking=False):
+            if not requests.claim():
+                return False
+            today = datetime.now(ZoneInfo(self.settings.timezone)).date()
+            start = today - timedelta(days=2)
+            counts = {}
+            errors = {}
+            # Try both resources even if one fails; stop external calls on auth/rate limits.
+            for name, sync in (
+                ("daily_health", self.sync_daily),
+                ("activities", self.sync_activities),
+            ):
+                try:
+                    counts[name] = sync(start, today)
+                except Exception as error:
+                    kind = type(error).__name__
+                    errors[name] = kind
+                    logger.exception("Ad hoc synchronization failed", extra={"resource": name})
+                    if "Authentication" in kind or "TooManyRequests" in kind:
+                        break
+            requests.finish(
+                {
+                    "status": "error" if errors else "success",
+                    "counts": counts,
+                    "errors": errors,
+                    "start_date": start.isoformat(),
+                    "end_date": today.isoformat(),
+                }
+            )
+            return True
+
     def run_forever(self) -> None:
+        requests = SyncRequests(self.settings.sync_request_dir)
+        # Also excludes a second scheduler while the first sleeps between cycles.
+        with requests.lock("scheduler", blocking=False):
+            with requests.lock("worker", blocking=False):
+                requests.recover()
+            self._schedule(requests)
+
+    def _schedule(self, requests: SyncRequests) -> None:
+        next_scheduled = 0.0
+        backfill_pending = not all(
+            self.database.has_successful_sync(resource)
+            for resource in ("daily_health", "activities")
+        )
         while True:
-            started = time.monotonic()
             try:
-                result = self.run_once()
-                logger.info("Synchronization cycle completed", extra=result)
+                if not backfill_pending and self.process_request(requests):
+                    # Keep the scheduled full backfill independent of a recent-only request.
+                    continue
+                if time.monotonic() >= next_scheduled:
+                    started = time.monotonic()
+                    try:
+                        result = self.run_once(force_backfill=backfill_pending)
+                        backfill_pending = False
+                        logger.info("Synchronization cycle completed", extra=result)
+                    finally:
+                        next_scheduled = max(
+                            time.monotonic() + 30,
+                            started + self.settings.sync_interval_seconds,
+                        )
             except Exception:
                 logger.exception("Synchronization cycle failed; it will be retried")
-            elapsed = time.monotonic() - started
-            delay = max(30, self.settings.sync_interval_seconds - elapsed)
-            logger.info("Waiting for next synchronization cycle", extra={"seconds": round(delay)})
-            time.sleep(delay)
+            time.sleep(2)

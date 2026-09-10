@@ -92,6 +92,15 @@ fi
 "${compose[@]}" exec -T mcp python -c \
   "import socket; connection = socket.create_connection(('127.0.0.1', 8000), 5); connection.close()"
 
+# Exercise the real MCP request entry point and shared volume as the unprivileged
+# MCP and collector users, without contacting Garmin or OpenAI.
+"${compose[@]}" exec -T mcp python -c \
+  "from garmin_health_gateway.mcp_server import request_sync, get_sync_status, database; r=request_sync(); assert r['accepted']; assert get_sync_status()['ad_hoc']['request_id']==r['request_id']; assert database()._fetch_all('SHOW transaction_read_only')[0]['transaction_read_only']=='on'"
+"${compose[@]}" run --rm --no-deps --entrypoint python collector -c \
+  "from garmin_health_gateway.config import Settings; from garmin_health_gateway.sync_requests import SyncRequests; q=SyncRequests(Settings.from_env().sync_request_dir); assert q.claim()['status']=='running'; q.finish({'status':'success','counts':{'daily_health':0,'activities':0}})"
+"${compose[@]}" exec -T mcp python -c \
+  "from garmin_health_gateway.mcp_server import get_sync_status, request_sync; assert get_sync_status()['ad_hoc']['status']=='success'; assert request_sync()['reason']=='cooldown'"
+
 host_arch="$(uname -m)"
 case "${host_arch}" in
   aarch64 | arm64) expected_arch=arm64 ;;

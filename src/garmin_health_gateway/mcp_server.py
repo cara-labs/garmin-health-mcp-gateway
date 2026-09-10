@@ -11,10 +11,13 @@ from pydantic import Field
 
 from .config import Settings
 from .db import Database
+from .sync_requests import SyncRequests
 
 READ_ONLY = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False)
 INSTRUCTIONS = (
-    "Read-only access to one user's locally stored Garmin health and activity data. "
+    "Query one user's locally stored Garmin health and activity data. "
+    "When asked to refresh or sync, call request_sync, then check get_sync_status. "
+    "A queued request is not completion; wait for ad_hoc.status=success before claiming freshness. "
     "Use readiness, sleep, HRV, resting heart rate, training load, and recent activity "
     "context together. Do not present training advice as medical diagnosis. Empty fields "
     "usually mean the wearable or Garmin did not supply that metric."
@@ -153,7 +156,27 @@ def get_training_load(days: Annotated[int, Field(ge=1, le=365)] = 28) -> dict[st
 def get_sync_status() -> dict[str, Any]:
     """Get collector freshness and the last understandable synchronization errors."""
     rows = database().get_sync_state()
-    return {"resources": rows}
+    return {"resources": rows, "ad_hoc": SyncRequests(settings().sync_request_dir).status()}
+
+
+@mcp.tool(
+    title="Sync latest Garmin data",
+    annotations=ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=True,
+    ),
+)
+def request_sync() -> dict[str, Any]:
+    """Queue a refresh of today's and the preceding two days' health and activities.
+
+    Returns immediately. Poll get_sync_status for ad_hoc completion/error before
+    reading refreshed data. Pending requests are coalesced; a five-minute cooldown
+    follows completion or failure. A busy collector finishes its current cycle first.
+    This fetches data already uploaded to Garmin Connect; it cannot sync the watch.
+    """
+    return SyncRequests(settings().sync_request_dir).request()
 
 
 def run() -> None:

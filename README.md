@@ -1,6 +1,6 @@
 # Garmin Health Gateway
 
-A production-oriented, read-only Garmin health gateway for 64-bit Docker hosts. It is optimized for Raspberry Pi but also runs on Linux servers, NAS devices, mini PCs, cloud hosts, and Docker Desktop. It incrementally collects normalized health and activity data into PostgreSQL, preserves each original FIT activity file, and exposes semantic MCP tools to ChatGPT and Codex through an outbound-only OpenAI Secure MCP Tunnel.
+A production-oriented Garmin health gateway for 64-bit Docker hosts, with read-only data queries and on-demand synchronization. It is optimized for Raspberry Pi but also runs on Linux servers, NAS devices, mini PCs, cloud hosts, and Docker Desktop. It incrementally collects normalized health and activity data into PostgreSQL, preserves each original FIT activity file, and exposes semantic MCP tools to ChatGPT and Codex through an outbound-only OpenAI Secure MCP Tunnel.
 
 Versioned application images are published to `ghcr.io/cara-labs/garmin-health-mcp-gateway` for `linux/amd64` and `linux/arm64`. Releases include build provenance and an SBOM. Contributors can still build the image locally with `compose.build.yaml`.
 
@@ -13,7 +13,7 @@ Garmin Connect ──HTTPS──> collector ──> PostgreSQL (internal network
                               │
                               └────────> FIT archive volume
 
-ChatGPT phone <── OpenAI ── outbound Secure MCP Tunnel <── read-only MCP <── PostgreSQL
+ChatGPT phone <── OpenAI ── outbound Secure MCP Tunnel <── MCP queries <── PostgreSQL
 ```
 
 The MCP server never receives Garmin credentials, Garmin tokens, or FIT-file access. Its separate PostgreSQL role has only `SELECT` privileges and database-enforced read-only transactions. PostgreSQL has no published port. The Docker host needs outbound HTTPS but no inbound firewall or router port.
@@ -49,8 +49,15 @@ If Garmin has no original FIT file for a manual/imported activity, the activity 
 - `get_resting_hr_history(days=90)`
 - `get_training_load(days=28)`
 - `get_sync_status()`
+- `request_sync()`
 
-Every tool is annotated `readOnlyHint=true`, `destructiveHint=false`, and `openWorldHint=false`. There is no SQL tool and no mutation tool.
+The 12 query tools remain read-only. `request_sync` is annotated as mutating, non-destructive, idempotent, and open-world because it requests Garmin downloads and local database updates. There is no raw SQL tool or Garmin account mutation tool.
+
+Ask in chat: “Sync my latest Garmin health and activities, wait for completion, then summarize today's recovery.” `request_sync` immediately returns a request ID and `queued` status. Check `get_sync_status().ad_hoc` until `success` or `error`, then query the refreshed data. A request refreshes today and the preceding two calendar days in the configured timezone, including FIT files for new activities. It cannot make the watch upload to Garmin Connect.
+
+The collector checks for requests every two seconds while idle. Requests wait behind an active scheduled sync or unfinished initial backfill. Duplicate queued/running requests return the same ID; requests within five minutes of completion/failure return a cooldown and retry interval. Status includes timestamps, per-resource counts, and error types. Interrupted jobs are marked failed after collector restart. An offline collector leaves the request queued; queued is never a success indication.
+
+Requests use a dedicated local `sync_requests` Docker volume; the MCP database role still has only SELECT privileges and no Garmin credentials. Collector and manual CLI syncs share a process lock to prevent concurrent Garmin requests.
 
 ## Operations
 
@@ -84,7 +91,7 @@ Choose Streamable HTTP and `http://127.0.0.1:8000/mcp`. Stop using the local ove
 
 ## Backups and restore
 
-Back up all three persistent volumes: `postgres_data`, `fit_archive`, and `garmin_tokens`. Encrypt backups. The token volume grants long-lived Garmin access and is as sensitive as a password. A logical PostgreSQL dump plus a filesystem copy of the FIT archive is the most portable backup.
+Back up the three data volumes: `postgres_data`, `fit_archive`, and `garmin_tokens`. The additional `sync_requests` volume stores only the latest refresh job and lock files; it can be recreated if losing pending job status is acceptable. Encrypt backups. The token volume grants long-lived Garmin access and is as sensitive as a password. A logical PostgreSQL dump plus a filesystem copy of the FIT archive is the most portable backup.
 
 Do not restore PostgreSQL by copying a live data directory. Stop writes and use `pg_dump`/`pg_restore`, or use a snapshot mechanism designed for Docker volumes.
 

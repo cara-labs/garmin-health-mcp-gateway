@@ -97,6 +97,7 @@ def _settings(tmp_path) -> Settings:
         garmin_email=None,
         garmin_password=None,
         mcp_reader_password=None,
+        sync_request_dir=tmp_path / "requests",
     )
 
 

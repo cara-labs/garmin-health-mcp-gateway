@@ -42,11 +42,13 @@ services:
       - sh
       - -c
       - >-
-        mkdir -p /data/garmin/fit /auth &&
-        chown -R ${GATEWAY_UID:-1000}:${GATEWAY_GID:-1000} /data/garmin /auth
+        mkdir -p /data/garmin/fit /auth /sync &&
+        chown -R ${GATEWAY_UID:-1000}:${GATEWAY_GID:-1000} /data/garmin /auth /sync &&
+        chmod 700 /sync
     volumes:
       - fit_archive:/data/garmin
       - garmin_tokens:/auth
+      - sync_requests:/sync
     networks:
       - data
     restart: "no"
@@ -81,7 +83,7 @@ services:
         max-file: "5"
 
   migrate:
-    image: ${GARMIN_GATEWAY_IMAGE:-ghcr.io/cara-labs/garmin-health-mcp-gateway:1.0.2}
+    image: ${GARMIN_GATEWAY_IMAGE:-ghcr.io/cara-labs/garmin-health-mcp-gateway:1.1.0}
     <<: *app-security
     restart: "no"
     command: ["provision-reader"]
@@ -100,7 +102,7 @@ services:
     cpus: 0.5
 
   collector:
-    image: ${GARMIN_GATEWAY_IMAGE:-ghcr.io/cara-labs/garmin-health-mcp-gateway:1.0.2}
+    image: ${GARMIN_GATEWAY_IMAGE:-ghcr.io/cara-labs/garmin-health-mcp-gateway:1.1.0}
     <<: *app-security
     command: ["scheduler"]
     environment:
@@ -114,6 +116,7 @@ services:
     volumes:
       - fit_archive:/data/garmin
       - garmin_tokens:/var/lib/garmin-auth
+      - sync_requests:/var/lib/garmin-sync
     networks:
       - data
       - collector_egress
@@ -134,7 +137,7 @@ services:
     cpus: 1.5
 
   mcp:
-    image: ${GARMIN_GATEWAY_IMAGE:-ghcr.io/cara-labs/garmin-health-mcp-gateway:1.0.2}
+    image: ${GARMIN_GATEWAY_IMAGE:-ghcr.io/cara-labs/garmin-health-mcp-gateway:1.1.0}
     <<: *app-security
     command: ["mcp"]
     environment:
@@ -145,10 +148,14 @@ services:
       MCP_PORT: 8000
     secrets:
       - mcp_reader_password
+    volumes:
+      - sync_requests:/var/lib/garmin-sync
     networks:
       - data
       - tunnel_link
     depends_on:
+      volume-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       migrate:
@@ -213,6 +220,7 @@ secrets:
     file: ./secrets/mcp_reader_password.txt
 
 volumes:
+  sync_requests:
   postgres_data:
   fit_archive:
   garmin_tokens:

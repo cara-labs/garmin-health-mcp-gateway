@@ -50,6 +50,7 @@ class Settings:
     garmin_email: str | None
     garmin_password: str | None
     mcp_reader_password: str | None
+    sync_request_dir: Path = Path("/var/lib/garmin-sync")
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -68,6 +69,7 @@ class Settings:
             )
 
         return cls(
+            sync_request_dir=Path(os.getenv("GARMIN_SYNC_REQUEST_DIR", "/var/lib/garmin-sync")),
             database_url=database_url,
             fit_archive=Path(os.getenv("GARMIN_FIT_ARCHIVE", "/data/garmin/fit")),
             token_store=Path(os.getenv("GARMIN_TOKEN_STORE", "/var/lib/garmin-auth")),
