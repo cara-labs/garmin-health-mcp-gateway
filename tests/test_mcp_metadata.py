@@ -10,7 +10,9 @@ def test_query_tools_are_read_only_and_sync_is_annotated_as_mutating() -> None:
     assert len(tools) >= 12
     for tool in tools:
         assert tool.annotations is not None
-        assert tool.annotations.readOnlyHint is (tool.name != "request_sync")
+        assert tool.annotations.readOnlyHint is (
+            tool.name not in ("request_sync", "save_activity_feedback")
+        )
         assert tool.annotations.destructiveHint is False
         assert tool.annotations.openWorldHint is (tool.name == "request_sync")
 
@@ -31,4 +33,11 @@ def test_required_mcp_tools_exist() -> None:
         "get_training_load",
         "request_sync",
         "get_sync_status",
+        "get_activity_streams",
+        "get_activity_laps",
+        "get_activity_fit_metrics",
+        "save_activity_feedback",
+        "get_activity_feedback",
+        "get_activity_weather",
+        "get_training_profile",
     } <= names

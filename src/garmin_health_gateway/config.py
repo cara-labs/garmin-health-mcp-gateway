@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import quote
 
+from psycopg.conninfo import make_conninfo
+
 
 def _read_secret(name: str, default_file: str | None = None) -> str | None:
     value = os.getenv(name)
@@ -51,6 +53,12 @@ class Settings:
     garmin_password: str | None
     mcp_reader_password: str | None
     sync_request_dir: Path = Path("/var/lib/garmin-sync")
+    historical_weather_enabled: bool = False
+    weather_request_timeout_seconds: int = 10
+    weather_request_delay_seconds: float = 2.0
+    weather_batch_size: int = 1
+    feedback_writer_password: str | None = None
+    feedback_database_url: str | None = None
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -68,7 +76,25 @@ class Settings:
                 f"@{db_host}:{db_port}/{quote(db_name, safe='')}"
             )
 
+        feedback_password = _read_secret(
+            "MCP_FEEDBACK_PASSWORD", "/run/secrets/mcp_feedback_password"
+        )
+        feedback_url = os.getenv("MCP_FEEDBACK_DATABASE_URL")
+        if not feedback_url and feedback_password:
+            feedback_url = make_conninfo(
+                database_url, user="garmin_mcp_feedback_writer", password=feedback_password
+            )
+        weather_batch_size = _positive_int("WEATHER_BATCH_SIZE", 1)
+        if weather_batch_size > 10:
+            raise ValueError("WEATHER_BATCH_SIZE must be between 1 and 10")
         return cls(
+            feedback_writer_password=feedback_password,
+            feedback_database_url=feedback_url,
+            historical_weather_enabled=os.getenv("GARMIN_HISTORICAL_WEATHER", "false").lower()
+            == "true",
+            weather_request_timeout_seconds=_positive_int("WEATHER_REQUEST_TIMEOUT_SECONDS", 10),
+            weather_request_delay_seconds=_nonnegative_float("WEATHER_REQUEST_DELAY_SECONDS", 2.0),
+            weather_batch_size=weather_batch_size,
             sync_request_dir=Path(os.getenv("GARMIN_SYNC_REQUEST_DIR", "/var/lib/garmin-sync")),
             database_url=database_url,
             fit_archive=Path(os.getenv("GARMIN_FIT_ARCHIVE", "/data/garmin/fit")),

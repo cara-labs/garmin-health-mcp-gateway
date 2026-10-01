@@ -2,6 +2,12 @@
 
 A production-oriented Garmin health gateway for 64-bit Docker hosts, with read-only data queries and on-demand synchronization. It is optimized for Raspberry Pi but also runs on Linux servers, NAS devices, mini PCs, cloud hosts, and Docker Desktop. It incrementally collects normalized health and activity data into PostgreSQL, preserves each original FIT activity file, and exposes semantic MCP tools to ChatGPT and Codex through an outbound-only OpenAI Secure MCP Tunnel.
 
+The development checkout adds FIT analysis, revisioned subjective feedback,
+stored historical weather and configured training profiles (20 tools). These
+changes are not yet published: the pinned `1.1.0` image still exposes 13 tools.
+Until a new release is approved, test this checkout with `compose.build.yaml`.
+See [activity-analysis contracts and backfill](docs/ACTIVITY_ANALYSIS.md).
+
 Versioned application images are published to `ghcr.io/cara-labs/garmin-health-mcp-gateway` for `linux/amd64` and `linux/arm64`. Releases include build provenance and an SBOM. Contributors can still build the image locally with `compose.build.yaml`.
 
 The gateway code in this repository was written independently. It uses the third-party, MIT-licensed `garminconnect` Python package as a runtime dependency; that package is installed from PyPI and its source is not copied into this repository. Our `GarminProvider` adapter is the only layer that calls it. Pinning version `0.3.11` prevents an untested update from being installed automatically, and the adapter converts failures into understandable sync errors while keeping the database and MCP layers independent of that dependency. Garmin Connect remains an unofficial and potentially changing personal-data interface.
@@ -17,6 +23,10 @@ ChatGPT phone <── OpenAI ── outbound Secure MCP Tunnel <── MCP queri
 ```
 
 The MCP server never receives Garmin credentials, Garmin tokens, or FIT-file access. Its separate PostgreSQL role has only `SELECT` privileges and database-enforced read-only transactions. PostgreSQL has no published port. The Docker host needs outbound HTTPS but no inbound firewall or router port.
+
+Feedback uses a second, execution-only database connection. It may append validated
+immutable revisions through one restricted function; it has no direct table
+read/write/update/delete privileges. The query connection remains read-only.
 
 ## Docker host requirements
 
@@ -50,8 +60,20 @@ If Garmin has no original FIT file for a manual/imported activity, the activity 
 - `get_training_load(days=28)`
 - `get_sync_status()`
 - `request_sync()`
+- `get_activity_streams(activity_id, start_seconds?, end_seconds?, resolution_seconds=5, cursor?)`
+- `get_activity_laps(activity_id, cursor?)`
+- `get_activity_fit_metrics(activity_id, cursor?)`
+- `save_activity_feedback(activity_id, feedback, idempotency_key, expected_revision?)`
+- `get_activity_feedback(activity_id, revision?, include_history=false, cursor?)`
+- `get_activity_weather(activity_id)`
+- `get_training_profile()`
 
-The 12 query tools remain read-only. `request_sync` is annotated as mutating, non-destructive, idempotent, and open-world because it requests Garmin downloads and local database updates. There is no raw SQL tool or Garmin account mutation tool.
+The development checkout has 18 read-only queries, plus `request_sync` and
+`save_activity_feedback`. Sync is open-world because it requests Garmin downloads;
+feedback is local, non-destructive and idempotent by key/payload. Missing values
+remain null, not zeros; each new query exposes units/source/freshness/missing
+evidence. Recovery-HR event payloads remain numeric and uninterpreted, not inferred
+from recovery hours. There is no raw SQL or Garmin account mutation tool.
 
 Ask in chat: “Sync my latest Garmin health and activities, wait for completion, then summarize today's recovery.” `request_sync` immediately returns a request ID and `queued` status. Check `get_sync_status().ad_hoc` until `success` or `error`, then query the refreshed data. A request refreshes today and the preceding two calendar days in the configured timezone, including FIT files for new activities. It cannot make the watch upload to Garmin Connect.
 

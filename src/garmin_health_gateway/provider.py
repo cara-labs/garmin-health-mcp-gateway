@@ -59,6 +59,14 @@ class GarminProvider(ABC):
     @abstractmethod
     def download_fit(self, activity_id: int) -> bytes: ...
 
+    def get_activity_weather(self, activity_id: int) -> dict[str, Any]:
+        """Optional recorded weather; unsupported providers fail explicitly."""
+        raise NotImplementedError("Activity weather is unsupported by this provider")
+
+    def get_configured_training_profile(self) -> dict[str, Any]:
+        """Optional raw configured settings, kept separate from daily health."""
+        raise NotImplementedError("Configured training profile is unsupported")
+
 
 class GarminConnectProvider(GarminProvider):
     def __init__(
@@ -164,6 +172,25 @@ class GarminConnectProvider(GarminProvider):
 
     def get_activity(self, activity_id: int) -> dict[str, Any]:
         return self._call("get_activity", str(activity_id))
+
+    def get_activity_weather(self, activity_id: int) -> dict[str, Any]:
+        payload = self._call("get_activity_weather", str(activity_id))
+        if not isinstance(payload, dict):
+            raise ValueError("Unexpected Garmin activity-weather response shape")
+        return payload
+
+    def get_configured_training_profile(self) -> dict[str, Any]:
+        profile = self._call("get_user_profile")
+        settings = self._call("get_userprofile_settings")
+        zones = self._call("get_heart_rate_zones")
+        if (
+            not isinstance(profile, dict)
+            or not isinstance(settings, dict)
+            or not isinstance(zones, list)
+            or any(not isinstance(zone, dict) for zone in zones)
+        ):
+            raise ValueError("Unexpected Garmin configured-profile response shape")
+        return {"profile": profile, "settings": settings, "heart_rate_zones": zones}
 
     def download_fit(self, activity_id: int) -> bytes:
         from garminconnect import Garmin

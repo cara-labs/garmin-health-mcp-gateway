@@ -33,6 +33,9 @@ class FakeDatabase:
     def has_successful_sync(self, resource):
         return self.states.get(resource) == "success"
 
+    def get_analysis_state(self):
+        return {"enrichment": [], "fit": []}
+
 
 class FakeProvider:
     def get_daily_summary(self, target):

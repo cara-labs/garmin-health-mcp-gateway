@@ -54,6 +54,9 @@ fi
 
 cd "${test_dir}"
 cp .env.example .env
+if [[ "${mode}" == "build" ]]; then
+  printf '\nGARMIN_LOCAL_IMAGE=garmin-health-mcp-gateway:%s\n' "${project_name}" >> .env
+fi
 sed -i "s/^GATEWAY_UID=.*/GATEWAY_UID=$(id -u)/" .env
 sed -i "s/^GATEWAY_GID=.*/GATEWAY_GID=$(id -g)/" .env
 mkdir -m 700 secrets
@@ -62,6 +65,7 @@ printf '%s' 'not-a-real-garmin-password' > secrets/garmin_password.txt
 printf '%s' 'not-a-real-openai-key' > secrets/openai_tunnel_api_key.txt
 printf '%s' 'install-test-postgres-password' > secrets/postgres_password.txt
 printf '%s' 'install-test-reader-password' > secrets/mcp_reader_password.txt
+printf '%s' 'install-test-feedback-password' > secrets/mcp_feedback_password.txt
 chmod 600 secrets/*.txt
 
 compose=(docker compose --project-name "${project_name}" --env-file .env "${compose_files[@]}")
@@ -101,6 +105,16 @@ fi
 "${compose[@]}" exec -T mcp python -c \
   "from garmin_health_gateway.mcp_server import get_sync_status, request_sync; assert get_sync_status()['ad_hoc']['status']=='success'; assert request_sync()['reason']=='cooldown'"
 
+# Seed only the disposable empty database; exercise documented no-login archive CLI.
+"${compose[@]}" run --rm -T --no-deps --entrypoint python \
+  --volume "${project_dir}/tests:/testfixtures:ro" collector - < \
+  "${project_dir}/scripts/seed-install-fixture.py"
+"${compose[@]}" run --rm --no-deps collector process-archives --activity-id 42 --limit 1
+"${compose[@]}" run --rm --no-deps collector process-archives --activity-id 42 --limit 1
+"${compose[@]}" run --rm --no-deps --env GARMIN_HISTORICAL_WEATHER=true \
+  collector backfill-weather --activity-id 42 --limit 1
+"${compose[@]}" exec -T mcp python - < "${project_dir}/scripts/mcp-install-smoke.py"
+
 host_arch="$(uname -m)"
 case "${host_arch}" in
   aarch64 | arm64) expected_arch=arm64 ;;
@@ -114,6 +128,17 @@ if [[ "${image_arch}" != "${expected_arch}" ]]; then
     "${expected_arch}" "${host_arch}" "${image_arch}" >&2
   exit 1
 fi
+
+# An additive-schema rollback must preserve the old published 13-tool contract.
+# This changes only this script's disposable project, never a configured gateway.
+if [[ "${mode}" == "build" ]]; then
+  GARMIN_LOCAL_IMAGE=ghcr.io/cara-labs/garmin-health-mcp-gateway:1.1.0 \
+    "${compose[@]}" up -d --no-build --no-deps --wait --wait-timeout 90 mcp
+else
+  GARMIN_GATEWAY_IMAGE=ghcr.io/cara-labs/garmin-health-mcp-gateway:1.1.0 \
+    "${compose[@]}" up -d --no-deps --wait --wait-timeout 90 mcp
+fi
+"${compose[@]}" exec -T mcp python - --legacy < "${project_dir}/scripts/mcp-install-smoke.py"
 
 "${compose[@]}" ps -a
 printf 'Installation smoke test passed (%s image, %s).\n' "${mode}" "${image_arch}"

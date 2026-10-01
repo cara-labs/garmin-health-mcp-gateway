@@ -9,9 +9,14 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
+from .activity_details import ActivityDetails
 from .config import Settings
 from .db import Database
+from .enrichment import get_training_profile as read_training_profile
+from .feedback import ActivityFeedback, get_feedback, save_feedback
+from .streams import ActivityStreams
 from .sync_requests import SyncRequests
+from .weather import get_activity_weather as read_activity_weather
 
 READ_ONLY = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False)
 INSTRUCTIONS = (
@@ -34,6 +39,15 @@ def database() -> Database:
     return Database(settings().database_url, min_size=1, max_size=8)
 
 
+@lru_cache(maxsize=1)
+def feedback_writer() -> Database:
+    if not settings().feedback_database_url:
+        raise RuntimeError(
+            "Configure the separate MCP feedback writer secret and provision its role"
+        )
+    return Database(settings().feedback_database_url, min_size=1, max_size=2)
+
+
 mcp = FastMCP(
     "Garmin Health Gateway",
     instructions=INSTRUCTIONS,
@@ -54,6 +68,119 @@ def _days(value: int, maximum: int = 730) -> int:
     if not 1 <= value <= maximum:
         raise ValueError(f"days must be between 1 and {maximum}")
     return value
+
+
+@mcp.tool(title="Get activity streams", annotations=READ_ONLY)
+def get_activity_streams(
+    activity_id: Annotated[int, Field(gt=0, strict=True)],
+    start_seconds: Annotated[float | None, Field(ge=0, allow_inf_nan=False)] = None,
+    end_seconds: Annotated[float | None, Field(gt=0, allow_inf_nan=False)] = None,
+    resolution_seconds: Annotated[int, Field(ge=0, le=3600, strict=True)] = 5,
+    cursor: Annotated[str | None, Field(max_length=2048)] = None,
+) -> dict[str, Any]:
+    """Read stored FIT streams, defaulting to five-second evidence summaries.
+
+    Bounds use elapsed seconds [start,end). Resolution 0 returns original samples
+    for an explicit window of at most 1800 seconds. Follow next_cursor for all
+    pages, including timer events and unplaced samples. Flagged values are not
+    filtered. Missing FIT processing is not evidence of no activity measurements.
+    This query never downloads, decodes, or calls Garmin/weather services.
+    """
+    return ActivityStreams(database()).get(
+        activity_id,
+        start_seconds=start_seconds,
+        end_seconds=end_seconds,
+        resolution_seconds=resolution_seconds,
+        cursor=cursor,
+    )
+
+
+@mcp.tool(title="Get activity laps and splits", annotations=READ_ONLY)
+def get_activity_laps(
+    activity_id: Annotated[int, Field(gt=0, strict=True)],
+    cursor: Annotated[str | None, Field(max_length=2048)] = None,
+) -> dict[str, Any]:
+    """Read recorded laps, planned/executed steps, and separately calculated kilometer splits.
+
+    Unknown triggers/alignment remain unknown. Derived boundary interpolation,
+    gaps, resets and partial splits are labeled. Follow next_cursor for all pages.
+    """
+    return ActivityDetails(database()).get(activity_id, tool="laps", cursor=cursor)
+
+
+@mcp.tool(title="Get activity FIT metrics", annotations=READ_ONLY)
+def get_activity_fit_metrics(
+    activity_id: Annotated[int, Field(gt=0, strict=True)],
+    cursor: Annotated[str | None, Field(max_length=2048)] = None,
+) -> dict[str, Any]:
+    """Read additional session/sensor/developer FIT evidence with original units.
+
+    Recorded recovery-HR event value is numeric and unchanged; its meaning,
+    baseline/final readings and interval remain unknown unless explicitly recorded.
+    Never substitute recovery hours or inferred HR decline. Follow next_cursor.
+    """
+    return ActivityDetails(database()).get(activity_id, tool="metrics", cursor=cursor)
+
+
+@mcp.tool(
+    title="Save activity feedback revision",
+    annotations=ToolAnnotations(
+        readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    ),
+)
+def save_activity_feedback(
+    activity_id: Annotated[int, Field(gt=0, strict=True)],
+    feedback: ActivityFeedback,
+    idempotency_key: Annotated[str, Field(min_length=1, max_length=128)],
+    expected_revision: Annotated[int | None, Field(ge=0, strict=True)] = None,
+) -> dict[str, Any]:
+    """Append an immutable complete subjective snapshot; does not write Garmin account data.
+
+    Effort/RPE/pain severity scales are 0..10. Heaviness onset is elapsed seconds.
+    Omitted fields are unset, not inherited. Reuse a key only for the identical
+    payload; corrections use a new key and preferably the last expected_revision.
+    """
+    return save_feedback(
+        feedback_writer(), activity_id, feedback, idempotency_key, expected_revision
+    )
+
+
+@mcp.tool(title="Get activity feedback revisions", annotations=READ_ONLY)
+def get_activity_feedback(
+    activity_id: Annotated[int, Field(gt=0, strict=True)],
+    revision: Annotated[int | None, Field(gt=0, strict=True)] = None,
+    include_history: bool = False,
+    cursor: Annotated[str | None, Field(max_length=1024)] = None,
+) -> dict[str, Any]:
+    """Read latest feedback by default, a selected immutable revision, or paginated history.
+
+    History is bounded to 50 revisions per page and bound to its initial snapshot.
+    User-reported recovery-HR protocol is separate from recorded FIT evidence.
+    """
+    return get_feedback(
+        database(), activity_id, revision=revision, include_history=include_history, cursor=cursor
+    )
+
+
+@mcp.tool(title="Get stored activity weather", annotations=READ_ONLY)
+def get_activity_weather(activity_id: Annotated[int, Field(gt=0, strict=True)]) -> dict[str, Any]:
+    """Read stored recorded weather, modeled historical conditions, and wearable temperature.
+
+    No network lookup is triggered. Station observations and model grids remain
+    separate. Missing units are unknown, not guessed. Radiation/cloud cover is
+    not evidence of personal sun/shade exposure.
+    """
+    return read_activity_weather(database(), activity_id)
+
+
+@mcp.tool(title="Get configured training profile", annotations=READ_ONLY)
+def get_training_profile() -> dict[str, Any]:
+    """Read latest configured running/general HR settings and separate measured daily resting HR.
+
+    Snapshot collection time is not effective time. Do not assume these settings
+    applied to older activities; missing thresholds and zone methods stay unknown.
+    """
+    return read_training_profile(database())
 
 
 @mcp.tool(title="Get daily health", annotations=READ_ONLY)
@@ -156,7 +283,11 @@ def get_training_load(days: Annotated[int, Field(ge=1, le=365)] = 28) -> dict[st
 def get_sync_status() -> dict[str, Any]:
     """Get collector freshness and the last understandable synchronization errors."""
     rows = database().get_sync_state()
-    return {"resources": rows, "ad_hoc": SyncRequests(settings().sync_request_dir).status()}
+    return {
+        "resources": rows,
+        "ad_hoc": SyncRequests(settings().sync_request_dir).status(),
+        "analysis": database().get_analysis_state(),
+    }
 
 
 @mcp.tool(

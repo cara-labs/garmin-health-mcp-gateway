@@ -1,5 +1,12 @@
 # Raspberry Pi installation
 
+**Development checkout:** activity analysis is not published yet. The `.env`
+default image `1.1.0` has 13 tools, not the 20 implemented here. Use the local-build
+override and `scripts/test-install-flow.sh build` to test these changes. The
+updated `published` smoke test requires an approved new image containing all 20
+tools; it cannot pass against `1.1.0`. Publishing and production deployment are
+separate operations, not performed by installation tests.
+
 This guide starts with a new Raspberry Pi, installs Docker, deploys Garmin Health Gateway, and connects it to ChatGPT through an outbound-only OpenAI Secure MCP Tunnel. No inbound firewall rule, router port forwarding, public hostname, or TLS certificate is required.
 
 The installation starts six Compose services:
@@ -188,7 +195,9 @@ It prompts locally for:
 - Garmin account password
 - OpenAI tunnel runtime API key
 
-It also generates separate PostgreSQL administrator and MCP reader passwords. Secret files are stored under `secrets/` with restrictive permissions and are excluded by `.gitignore`. Do not print or commit their contents.
+It also generates separate PostgreSQL administrator, MCP reader and execution-only
+feedback-writer passwords. Secret files are stored under `secrets/` with restrictive
+permissions and are excluded by `.gitignore`. Do not print or commit their contents.
 
 Validate the Compose configuration:
 
@@ -282,7 +291,10 @@ Use ChatGPT on the web for the one-time connection setup:
 6. Select the tunnel created earlier, or paste its `tunnel_...` ID.
 7. Create the connection and review the discovered tools.
 
-The connection should discover 13 tools: 12 read-only queries and `request_sync`, which requests local data updates from Garmin. There is no raw SQL tool. OpenAI's current workflow is documented in [Connect and test your plugin](https://developers.openai.com/plugins/deploy/connect-chatgpt).
+The `1.1.0` image discovers 13 tools. An activity-analysis build discovers 20:
+18 read-only queries, `request_sync`, and `save_activity_feedback`. There is no
+raw SQL tool. See [the tool list](README.md#mcp-tools) and the official
+[connection guide](https://developers.openai.com/plugins/deploy/connect-chatgpt).
 
 To refresh from chat, ask “Sync my latest Garmin health and activities.” The new tool queues the last three calendar days; use `get_sync_status` to check `ad_hoc.status` and only treat `success` as completion. Queued jobs wait for any active sync and initial backfill. A five-minute cooldown limits repeat requests. See [README](README.md#mcp-tools) for error and restart behavior.
 
@@ -343,6 +355,58 @@ docker compose ps -a
 ```
 
 Review Garmin client and OpenAI tunnel-client release notes before changing pinned dependency or image versions.
+
+## Activity-analysis upgrade, backfill and rollback
+
+This applies only to a tested build/new release containing the analysis code,
+not the old `1.1.0` image. Before any production change, save your previous Compose
+files/image tag and take encrypted database/archive/token backups. Stop the
+collector while migrating; retain all existing administrator/reader credentials.
+Create **only** the new feedback secret if absent (`--feedback-only` preserves
+existing credentials and does not prompt for them), then validate and build:
+
+```sh
+./scripts/setup-secrets.sh --feedback-only
+docker compose -f compose.yaml -f compose.build.yaml config --quiet
+docker compose -f compose.yaml -f compose.build.yaml build --pull
+docker compose stop collector
+docker compose -f compose.yaml -f compose.build.yaml run --rm migrate
+docker compose -f compose.yaml -f compose.build.yaml up -d
+```
+
+Migrations 002–004 are additive and tracked transactionally. They add immutable FIT
+generations/feedback revisions/optional observations without rewriting health or
+activity summaries. Provisioning preserves the read-only query role and creates
+the execution-only feedback role. No Garmin login is needed for archive processing:
+
+```sh
+docker compose -f compose.yaml -f compose.build.yaml run --rm collector process-archives --limit 10
+docker compose -f compose.yaml -f compose.build.yaml run --rm collector process-archives --activity-id 42 --reprocess
+```
+
+Replace `42` with a stored activity ID. Follow the returned next-ID cursor for
+bounded resume. See [limits, failure recovery and evidence](docs/ACTIVITY_ANALYSIS.md).
+For historical weather, explicitly opt in by setting `GARMIN_HISTORICAL_WEATHER=true`
+in `.env`, then recreate the collector or use the one-shot command:
+
+```sh
+docker compose -f compose.yaml -f compose.build.yaml run --rm collector backfill-weather --limit 1
+```
+
+The free Open-Meteo endpoint is non-commercial; sampled route coordinates/times
+are disclosed to it. ERA5 is hourly/~25 km and delayed five days. Missing weather
+does not block FIT/core sync. Queries never trigger historical network calls.
+
+After an approved rollout, refresh the existing ChatGPT connection's tool list
+and use a new chat to check all 20 names. Refresh requests are not a wearable
+upload command; check `get_sync_status` before claiming new health data.
+
+Rollback: stop the new collector/MCP, restore the saved `1.1.0` Compose settings
+and image tag, and start those services. Keep database/FIT/token volumes intact;
+the old code ignores additive analysis tables. Do not drop migrations or use
+`down --volumes`. Query tools return to the prior 13-tool list; feedback/analysis
+history remains stored but unavailable to the old code. Restore a backup only
+when necessary and with writes stopped; normal rollback needs no data deletion.
 
 ## Remove the containers
 

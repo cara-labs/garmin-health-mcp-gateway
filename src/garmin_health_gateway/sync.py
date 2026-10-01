@@ -25,10 +25,29 @@ def date_range(start: date, end: date) -> Iterator[date]:
 
 
 class SyncEngine:
-    def __init__(self, settings: Settings, database: Database, provider: GarminProvider):
+    def __init__(
+        self,
+        settings: Settings,
+        database: Database,
+        provider: GarminProvider,
+        *,
+        analysis=None,
+        historical_weather=None,
+    ):
         self.settings = settings
         self.database = database
         self.provider = provider
+        self.analysis = analysis
+        self.historical_weather = historical_weather
+
+    def _analysis(self, name: str, call: Callable[[], Any]) -> None:
+        try:
+            call()
+        except Exception as error:
+            logger.warning(
+                "Optional analysis failed independently of core sync",
+                extra={"resource": name, "error_type": type(error).__name__},
+            )
 
     def _optional(self, resource: str, target: date, call: Callable[[], Any]) -> Any:
         try:
@@ -106,6 +125,8 @@ class SyncEngine:
                     "Daily Garmin data synchronized",
                     extra={"date": target.isoformat(), "completed": count},
                 )
+            if self.analysis:
+                self._analysis("training_profile", self.analysis.profile)
             self.database.finish_sync(resource)
             return count
         except Exception as error:
@@ -161,6 +182,13 @@ class SyncEngine:
                     normalized["fit_file_path"] = str(fit_path)
                     normalized["fit_download_status"] = "archived"
                 self.database.upsert_activity(normalized)
+                if self.analysis:
+                    self._analysis(
+                        "activity_analysis",
+                        lambda activity_id=activity_id, path=normalized["fit_file_path"]: (
+                            self.analysis.activity(activity_id, path)
+                        ),
+                    )
                 count += 1
                 logger.info(
                     "Garmin activity synchronized",
@@ -255,6 +283,15 @@ class SyncEngine:
                             time.monotonic() + 30,
                             started + self.settings.sync_interval_seconds,
                         )
+                elif self.historical_weather and self.settings.historical_weather_enabled:
+                    from .backfill import weather_batch
+
+                    weather_batch(
+                        self.database,
+                        requests,
+                        self.historical_weather,
+                        limit=self.settings.weather_batch_size,
+                    )
             except Exception:
                 logger.exception("Synchronization cycle failed; it will be retried")
             time.sleep(2)

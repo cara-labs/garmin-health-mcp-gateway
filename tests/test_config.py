@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from psycopg.conninfo import conninfo_to_dict
+
 from garmin_health_gateway.config import Settings
 
 
@@ -29,3 +31,14 @@ def test_environment_secret_takes_precedence_over_file(tmp_path, monkeypatch) ->
     monkeypatch.setenv("POSTGRES_PASSWORD_FILE", str(password))
 
     assert "right" in Settings.from_env().database_url
+
+
+def test_feedback_credentials_are_separate_from_reader(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://garmin_mcp_reader:reader@localhost/test")
+    secret = tmp_path / "feedback-password"
+    secret.write_text("feedback'only")
+    monkeypatch.setenv("MCP_FEEDBACK_PASSWORD_FILE", str(secret))
+    result = Settings.from_env()
+    assert conninfo_to_dict(result.database_url)["user"] == "garmin_mcp_reader"
+    assert conninfo_to_dict(result.feedback_database_url)["user"] == "garmin_mcp_feedback_writer"
+    assert conninfo_to_dict(result.feedback_database_url)["password"] == "feedback'only"

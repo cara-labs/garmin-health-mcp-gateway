@@ -4,12 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "garmin-health-gateway"
-version = "1.1.0"
-description = "Self-hosted Garmin health-data MCP gateway with on-demand synchronization"
+version = "1.2.0rc1"
+description = "Garmin health and activity MCP gateway with FIT analysis and revisioned feedback"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
+  "fitdecode==0.11.0",
   "garminconnect==0.3.11",
   "mcp==1.29.1",
   "psycopg[binary,pool]==3.3.4",

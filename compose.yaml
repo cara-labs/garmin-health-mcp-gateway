@@ -90,9 +90,11 @@ services:
     environment:
       <<: *app-env
       MCP_READER_PASSWORD_FILE: /run/secrets/mcp_reader_password
+      MCP_FEEDBACK_PASSWORD_FILE: /run/secrets/mcp_feedback_password
     secrets:
       - postgres_password
       - mcp_reader_password
+      - mcp_feedback_password
     networks:
       - data
     depends_on:
@@ -109,6 +111,10 @@ services:
       <<: *app-env
       GARMIN_EMAIL_FILE: /run/secrets/garmin_email
       GARMIN_PASSWORD_FILE: /run/secrets/garmin_password
+      GARMIN_HISTORICAL_WEATHER: ${GARMIN_HISTORICAL_WEATHER:-false}
+      WEATHER_REQUEST_TIMEOUT_SECONDS: ${WEATHER_REQUEST_TIMEOUT_SECONDS:-10}
+      WEATHER_REQUEST_DELAY_SECONDS: ${WEATHER_REQUEST_DELAY_SECONDS:-2}
+      WEATHER_BATCH_SIZE: ${WEATHER_BATCH_SIZE:-1}
     secrets:
       - postgres_password
       - garmin_email
@@ -146,8 +152,10 @@ services:
       POSTGRES_PASSWORD_FILE: /run/secrets/mcp_reader_password
       MCP_HOST: 0.0.0.0
       MCP_PORT: 8000
+      MCP_FEEDBACK_PASSWORD_FILE: /run/secrets/mcp_feedback_password
     secrets:
       - mcp_reader_password
+      - mcp_feedback_password
     volumes:
       - sync_requests:/var/lib/garmin-sync
     networks:
@@ -218,6 +226,8 @@ secrets:
     file: ./secrets/openai_tunnel_api_key.txt
   mcp_reader_password:
     file: ./secrets/mcp_reader_password.txt
+  mcp_feedback_password:
+    file: ./secrets/mcp_feedback_password.txt
 
 volumes:
   sync_requests:

@@ -119,7 +119,11 @@ class Database:
             migrations_dir = Path(configured)
             if not migrations_dir.exists():
                 migrations_dir = Path(__file__).parents[2] / "migrations"
-        files = sorted(migrations_dir.glob("*.sql"))
+        # macOS archive transfers may contain AppleDouble ._*.sql metadata,
+        # which is not SQL and must never become an applied migration.
+        files = sorted(
+            path for path in migrations_dir.glob("*.sql") if not path.name.startswith(".")
+        )
         if not files:
             raise RuntimeError(f"No database migrations found in {migrations_dir}")
         with self.connection() as connection, connection.cursor() as cursor:
@@ -166,6 +170,48 @@ class Database:
             cursor.execute(
                 sql.SQL(
                     "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO {}"
+                ).format(role)
+            )
+
+    def provision_feedback_user(
+        self, password: str, role_name: str = "garmin_mcp_feedback_writer"
+    ) -> None:
+        if not password:
+            raise ValueError("The feedback writer password must not be empty")
+        role = sql.Identifier(role_name)
+        with self.connection() as connection:
+            database_name = connection.execute("SELECT current_database() AS name").fetchone()[
+                "name"
+            ]
+            existing = connection.execute(
+                "SELECT 1 FROM pg_roles WHERE rolname=%s", (role_name,)
+            ).fetchone()
+            if existing is None:
+                connection.execute(sql.SQL("CREATE ROLE {} LOGIN").format(role))
+            connection.execute(_alter_role_password_statement(role_name, password))
+            connection.execute(
+                sql.SQL(
+                    "ALTER ROLE {} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE "
+                    "NOREPLICATION NOBYPASSRLS"
+                ).format(role)
+            )
+            connection.execute(
+                sql.SQL("ALTER ROLE {} SET default_transaction_read_only=off").format(role)
+            )
+            connection.execute(sql.SQL("ALTER ROLE {} SET statement_timeout='15s'").format(role))
+            connection.execute(
+                sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(
+                    sql.Identifier(database_name), role
+                )
+            )
+            connection.execute(sql.SQL("GRANT USAGE ON SCHEMA public TO {}").format(role))
+            connection.execute(
+                sql.SQL("REVOKE ALL ON ALL TABLES IN SCHEMA public FROM {}").format(role)
+            )
+            connection.execute(
+                sql.SQL(
+                    "GRANT EXECUTE ON FUNCTION "
+                    "public.append_activity_feedback(bigint,jsonb,text,integer) TO {}"
                 ).format(role)
             )
 
@@ -235,6 +281,20 @@ class Database:
                     """,
                     (error[:2000], resource),
                 )
+
+    def get_analysis_state(self) -> dict[str, Any]:
+        with self.connection() as conn:
+            enrichment = conn.execute(
+                "SELECT resource,status,count(*) AS activities,"
+                "max(last_attempt_at) AS last_attempt_at,max(last_success_at) AS last_success_at "
+                "FROM enrichment_state GROUP BY resource,status ORDER BY resource,status"
+            ).fetchall()
+            fits = conn.execute(
+                "SELECT status,count(*) AS activities,"
+                "max(last_attempt_at) AS last_attempt_at,max(last_success_at) AS last_success_at "
+                "FROM fit_processing_state GROUP BY status ORDER BY status"
+            ).fetchall()
+        return _json_safe({"enrichment": enrichment, "fit": fits})
 
     def get_sync_state(self) -> list[dict[str, Any]]:
         return self._fetch_all("SELECT * FROM sync_state ORDER BY resource")

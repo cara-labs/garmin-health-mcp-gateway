@@ -6,6 +6,7 @@ The Garmin Health MCP Gateway source in this repository was written independentl
 
 | Package | Version | License | Purpose |
 | --- | --- | --- | --- |
+| [`fitdecode`](https://pypi.org/project/fitdecode/0.11.0/) | 0.11.0 | MIT; copyright Jean-Charles Lefebvre | Streaming FIT decoder, installed unmodified; original gateway adapter and generated test fixtures |
 | [`garminconnect`](https://pypi.org/project/garminconnect/0.3.11/) | 0.3.11 | MIT; copyright 2020–2026 Ron Klinkien | Unofficial Garmin Connect client used only by the provider adapter |
 | [`mcp`](https://pypi.org/project/mcp/1.29.1/) | 1.29.1 | MIT; copyright 2024 Anthropic, PBC | MCP protocol server implementation |
 | [`psycopg`](https://pypi.org/project/psycopg/3.3.4/) | 3.3.4 | LGPL-3.0-only | PostgreSQL client |
@@ -21,3 +22,12 @@ The published OCI image includes transitive Python dependencies plus components 
 PostgreSQL and OpenAI `tunnel-client` run as separate upstream container images referenced by `compose.yaml`; they are not incorporated into the Garmin Health MCP Gateway image and retain their own licenses.
 
 Apache License 2.0 in this repository applies only to the project's original code and documentation. It does not replace or override any third-party license.
+
+## Weather data (not software licensing)
+
+Historical weather integration will use Open-Meteo's documented HTTP API, not
+its server source code. Its data attribution and non-commercial API terms are
+separate from the Apache-2.0 license on the gateway. Preserve Open-Meteo and
+upstream model attribution with stored weather responses; see
+[official terms](https://open-meteo.com/en/terms) and
+[historical API documentation](https://open-meteo.com/en/docs/historical-weather-api).
