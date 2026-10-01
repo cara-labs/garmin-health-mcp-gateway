@@ -344,6 +344,12 @@ no-op; an explicit record-limit failure retained the active successful generatio
 The benchmark database was removed successfully. These are synthetic workload
 measurements, not a promise of runtime or database size for every activity.
 
-The new code has **not** been published or deployed to production. The currently
-pinned public `1.1.0` image lacks the new tools, so the updated published-image
-installation path remains pending an approved release-candidate publication.
+Following explicit approval, candidate `1.2.0-rc.1` was published for ARM64/AMD64
+from commit `78d1e2880fa927be7cb20204da914f5542276bb4`. Its OCI index digest is
+`sha256:3d299c0c2a0c58854416d700c5ff963712c7482be9f095f11be38577ffdcb70a`.
+[GitHub Actions validation](https://github.com/cara-labs/garmin-health-mcp-gateway/actions/runs/36805336634)
+passed tests, local-build installation, publication/attestation, and published-image
+installation. The actual Pi independently pulled the candidate, passed all 20
+tools and rollback to the old 13-tool image, and removed its disposable stack.
+The image revision label matches the source commit. The production Pi remains
+healthy on `1.1.0`; neither stable/`latest` tags nor production services were updated.

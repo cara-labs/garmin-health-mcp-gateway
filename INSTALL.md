@@ -1,11 +1,10 @@
 # Raspberry Pi installation
 
-**Development checkout:** activity analysis is not published yet. The `.env`
-default image `1.1.0` has 13 tools, not the 20 implemented here. Use the local-build
-override and `scripts/test-install-flow.sh build` to test these changes. The
-updated `published` smoke test requires an approved new image containing all 20
-tools; it cannot pass against `1.1.0`. Publishing and production deployment are
-separate operations, not performed by installation tests.
+**Prerelease:** activity analysis is available in `1.2.0-rc.1` for ARM64/AMD64.
+The `.env` default remains the stable `1.1.0` image (13 tools); the candidate has
+20 tools. Test the candidate explicitly using the command below, or use the local
+build override. Installation tests create only disposable stacks; they do not
+upgrade your production deployment or change stable image tags.
 
 This guide starts with a new Raspberry Pi, installs Docker, deploys Garmin Health Gateway, and connects it to ChatGPT through an outbound-only OpenAI Secure MCP Tunnel. No inbound firewall rule, router port forwarding, public hostname, or TLS certificate is required.
 
@@ -137,7 +136,8 @@ Run all remaining commands from this directory.
 Optionally run the isolated installation smoke test before entering any real credentials:
 
 ```bash
-./scripts/test-install-flow.sh published
+GARMIN_GATEWAY_IMAGE=ghcr.io/cara-labs/garmin-health-mcp-gateway:1.2.0-rc.1 \
+  ./scripts/test-install-flow.sh published
 ```
 
 The test creates temporary dummy secrets and volumes, starts PostgreSQL, applies the migration, checks the MCP service, verifies that Docker selected an ARM64 image, and removes the temporary containers and volumes. It does not contact Garmin or OpenAI and does not touch a configured production stack.

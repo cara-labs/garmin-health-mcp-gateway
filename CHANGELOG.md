@@ -26,6 +26,11 @@
   See `INSTALL.md` for new-secret setup,
   migration/backfill, tool discovery and non-destructive rollback.
 
+Validation: 112 tests passed on ARM64. GitHub Actions and the actual Pi both
+passed registry-pull installation with all 20 tools and 13-tool rollback.
+Published digest: `sha256:3d299c0c2a0c58854416d700c5ff963712c7482be9f095f11be38577ffdcb70a`.
+Production remains on `1.1.0`; this prerelease was not deployed there.
+
 ## 1.1.0 — 2026-09-09
 
 - Add `request_sync` so chats can request the latest three calendar days of Garmin health and activity data, including new FIT archives.

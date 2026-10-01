@@ -2,10 +2,11 @@
 
 A production-oriented Garmin health gateway for 64-bit Docker hosts, with read-only data queries and on-demand synchronization. It is optimized for Raspberry Pi but also runs on Linux servers, NAS devices, mini PCs, cloud hosts, and Docker Desktop. It incrementally collects normalized health and activity data into PostgreSQL, preserves each original FIT activity file, and exposes semantic MCP tools to ChatGPT and Codex through an outbound-only OpenAI Secure MCP Tunnel.
 
-The development checkout adds FIT analysis, revisioned subjective feedback,
-stored historical weather and configured training profiles (20 tools). These
-changes are not yet published: the pinned `1.1.0` image still exposes 13 tools.
-Until a new release is approved, test this checkout with `compose.build.yaml`.
+Prerelease `1.2.0-rc.1` adds FIT analysis, revisioned subjective feedback,
+stored historical weather and configured training profiles (20 tools). It is
+published for ARM64/AMD64; the default production pin remains `1.1.0` (13 tools).
+Test the candidate explicitly or build this checkout with `compose.build.yaml`;
+no production upgrade is automatic.
 See [activity-analysis contracts and backfill](docs/ACTIVITY_ANALYSIS.md).
 
 Versioned application images are published to `ghcr.io/cara-labs/garmin-health-mcp-gateway` for `linux/amd64` and `linux/arm64`. Releases include build provenance and an SBOM. Contributors can still build the image locally with `compose.build.yaml`.
